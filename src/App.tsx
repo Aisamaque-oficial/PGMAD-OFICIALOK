@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import { 
   BookOpen, 
   CheckCircle, 
@@ -91,22 +90,41 @@ const formatCountdown = (ms: number) => {
 export default function App() {
   // --- App State ---
   const [state, setState] = useState<PersistedState>(() => {
-    const globalSaved = localStorage.getItem('portal_ea_global');
-    const globalState = globalSaved ? JSON.parse(globalSaved) : { customModules: [] };
-    
-    return {
-      activeModuleIndex: 0,
-      responses: {},
-      moduleTimers: {},
-      modulesCompleted: [],
-      readingCompleted: {},
-      userName: '',
-      customModules: globalState.customModules,
-      isAdmin: false
-    };
+    try {
+      const globalSaved = localStorage.getItem('portal_ea_global');
+      const globalState = globalSaved ? JSON.parse(globalSaved) : null;
+      
+      return {
+        activeModuleIndex: 0,
+        responses: {},
+        moduleTimers: {},
+        modulesCompleted: [],
+        readingCompleted: {},
+        userName: '',
+        customModules: globalState?.customModules || [],
+        isAdmin: false
+      };
+    } catch (e) {
+      console.error('Error loading global state:', e);
+      return {
+        activeModuleIndex: 0,
+        responses: {},
+        moduleTimers: {},
+        modulesCompleted: [],
+        readingCompleted: {},
+        userName: '',
+        customModules: [],
+        isAdmin: false
+      };
+    }
   });
 
-  const currentModules = (state.customModules && state.customModules.length > 0) ? state.customModules : MODULES;
+  const handshakeRef = useRef<string | null>(null);
+
+  // Safety check for currentModules
+  const currentModules = Array.isArray(state?.customModules) && state.customModules.length > 0 
+    ? state.customModules 
+    : MODULES;
 
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(-2); // -2 means Intro, -1 means Materials
   const [currentQuestionSeconds, setCurrentQuestionSeconds] = useState(0);
@@ -169,20 +187,17 @@ export default function App() {
 
   // --- Supabase Handshake ---
   useEffect(() => {
-    let handshakeTimedOut = false;
-    const timeout = setTimeout(() => {
-      handshakeTimedOut = true;
-      setIsLoading(false);
-    }, 5000); // Segurança: Se demorar mais de 5s, libera a tela
-
+    if (!state.userName || handshakeRef.current === state.userName) {
+      return;
+    }
+    
     const performHandshake = async () => {
-      if (!state.userName) {
-        clearTimeout(timeout);
-        return;
-      }
-      
+      handshakeRef.current = state.userName;
       setIsLoading(true);
+      
       try {
+        console.log('[PGMAD] Starting Supabase Handshake for:', state.userName);
+        
         // 1. Fetch Materials (Official)
         const { data: materials, error: mError } = await supabase.from('materiais').select('*');
         if (!mError && materials && materials.length > 0) setDbMaterials(materials);
@@ -192,7 +207,7 @@ export default function App() {
           .from('prazos_especiais')
           .select('nova_data_limite')
           .eq('user_email', state.userName)
-          .maybeSingle(); // Usar maybeSingle para evitar erro se não achar nada
+          .maybeSingle();
         
         if (!dError && deadlines) setExtendedDeadline(deadlines.nova_data_limite);
 
@@ -206,23 +221,26 @@ export default function App() {
           const remoteResponses = {};
           responses.forEach(r => { 
             try {
-              // Tenta dar parse se for JSON, senão usa o texto puro
-              remoteResponses[r.questao_id] = r.resposta_texto.startsWith('{') || r.resposta_texto.startsWith('[') 
-                ? JSON.parse(r.resposta_texto) 
-                : r.resposta_texto;
+              const text = r.resposta_texto || '';
+              remoteResponses[r.questao_id] = (text.startsWith('{') || text.startsWith('[')) 
+                ? JSON.parse(text) 
+                : text;
             } catch(e) {
               remoteResponses[r.questao_id] = r.resposta_texto;
             }
           });
-          setState(prev => ({ ...prev, responses: { ...prev.responses, ...remoteResponses } }));
+          
+          if (Object.keys(remoteResponses).length > 0) {
+            setState(prev => ({ 
+              ...prev, 
+              responses: { ...prev.responses, ...remoteResponses } 
+            }));
+          }
         }
       } catch (err) {
-        console.error('Erro no Handshake:', err);
+        console.error('Handshake Error:', err);
       } finally {
-        clearTimeout(timeout);
-        if (!handshakeTimedOut) {
-          setTimeout(() => setIsLoading(false), 500);
-        }
+        setTimeout(() => setIsLoading(false), 800);
       }
     };
 
@@ -374,7 +392,7 @@ export default function App() {
               <Award size={24} />
             </div>
             <div>
-              <h1 className="font-bold text-slate-800 leading-tight">Portal EA Ã¢â‚¬â€ PGMAD/UESB</h1>
+              <h1 className="font-bold text-slate-800 leading-tight">Portal EA — PGMAD/UESB</h1>
               <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">{activeModule.turn}</p>
             </div>
           </div>
@@ -392,10 +410,9 @@ export default function App() {
                 <span className="text-xs font-bold text-primary">{Math.round(progressPercent)}%</span>
               </div>
               <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                <motion.div 
-                  initial={{ width: 0 }}
-                  animate={{ width: `${progressPercent}%` }}
+                <div
                   className="h-full bg-primary" 
+                  style={{ width: `${progressPercent}%` }}
                 />
               </div>
             </div>
@@ -449,7 +466,7 @@ export default function App() {
                 <span className="text-[10px] font-bold uppercase tracking-wider opacity-80">{m.turn}</span>
                 {status === 'COMPLETED' ? <CheckCircle size={14} /> : status === 'LOCKED' ? <Lock size={14} /> : status === 'EXPIRED' ? <AlertCircle size={14} /> : isActive ? <Clock size={14} /> : null}
               </div>
-              <h3 className="font-bold text-sm leading-tight">{m.title.split('Ã¢â‚¬â€')[1].trim()}</h3>
+              <h3 className="font-bold text-sm leading-tight">{m.title.includes('—') ? m.title.split('—')[1].trim() : m.title}</h3>
               
               {status === 'LOCKED' && isUnlockedBySequence && (
                 <p className="mt-2 text-[9px] font-bold text-accent bg-accent/10 px-2 py-0.5 rounded inline-block">
@@ -471,19 +488,14 @@ export default function App() {
           <AlertCircle size={14} /> Dica de Estudo
         </h4>
         <p className="text-xs text-slate-600 leading-relaxed italic">
-          "A Educação Ambiental é um processo contínuo de aprendizagem que exige reflexÃƒÂ£o crítica sobre nossas aÃƒÂ§ÃƒÂµes no mundo."
+          "A Educação Ambiental é um processo contínuo de aprendizagem que exige reflexão crítica sobre nossas ações no mundo."
         </p>
       </div>
     </nav>
   );
 
   const renderIntroView = () => (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-      className="space-y-8 max-w-4xl"
-    >
+    <div className="space-y-8 max-w-4xl">
       <div className="space-y-4">
         <div className="inline-block bg-bg-light text-primary px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
           Introdução
@@ -502,16 +514,11 @@ export default function App() {
           Acessar Materiais <ArrowRight size={20} />
         </button>
       </div>
-    </motion.div>
+    </div>
   );
 
   const renderMaterialsView = () => (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-      className="space-y-8 max-w-4xl"
-    >
+    <div className="space-y-8 max-w-4xl">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <button 
@@ -581,7 +588,7 @@ export default function App() {
           </button>
         )}
       </div>
-    </motion.div>
+    </div>
   );
 
   const renderQuestionView = () => {
@@ -592,11 +599,8 @@ export default function App() {
     const isAnswered = !!response?.confirmed;
 
     return (
-      <motion.div 
+      <div 
         key={q.id}
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: -20 }}
         className="space-y-8 max-w-4xl"
       >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -612,7 +616,7 @@ export default function App() {
               {activeQuestionIndex + 1}
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">QuestÃƒÂ£o {activeQuestionIndex + 1} de {activeModule.questions.length}</h3>
+              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Questão {activeQuestionIndex + 1} de {activeModule.questions.length}</h3>
               <p className="text-xs font-medium text-slate-500">Tempo sugerido: {q.suggestedMinutes} min</p>
             </div>
           </div>
@@ -650,11 +654,7 @@ export default function App() {
           />
 
           {isAnswered && (
-            <motion.div 
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              className="mt-12 pt-8 border-t border-slate-100"
-            >
+            <div className="mt-12 pt-8 border-t border-slate-100">
               <div className="flex items-center gap-2 text-primary font-bold mb-3">
                 <CheckCircle size={18} /> Resposta Confirmada
               </div>
@@ -670,20 +670,16 @@ export default function App() {
                   Continuar <ArrowRight size={18} />
                 </button>
               </div>
-            </motion.div>
+            </div>
           )}
         </div>
-      </motion.div>
+      </div>
     );
   };
 
   const renderSummaryView = () => {
     return (
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="max-w-5xl mx-auto space-y-12 py-12"
-      >
+      <div className="max-w-5xl mx-auto space-y-12 py-12">
         <div className="text-center space-y-4">
           <div className="inline-flex items-center justify-center bg-primary/10 text-primary p-4 rounded-full mb-4">
             <Award size={64} />
@@ -731,7 +727,7 @@ export default function App() {
             </div>
             <div className="text-center">
               <p className="font-bold text-slate-800">Todos os módulos finalizados</p>
-              <p className="text-sm text-slate-500">As respostas estÃƒÂ£o salvas localmente.</p>
+              <p className="text-sm text-slate-500">As respostas estão salvas localmente.</p>
             </div>
           </div>
         </div>
@@ -739,8 +735,8 @@ export default function App() {
         {/* Print Area */}
         <div className="print-only block">
           <div className="text-center border-b-2 border-primary pb-8 mb-12">
-            <h1 className="text-3xl font-bold text-primary">Relatório de Atividades Ã¢â‚¬â€ Portal EA</h1>
-            <p className="text-lg text-slate-600 mt-2">PGMAD/UESB Ã¢â‚¬â€ Educação Ambiental</p>
+            <h1 className="text-3xl font-bold text-primary">Relatório de Atividades — Portal EA</h1>
+            <p className="text-lg text-slate-600 mt-2">PGMAD/UESB — Educação Ambiental</p>
             <div className="mt-8 grid grid-cols-2 text-left gap-4 max-w-2xl mx-auto">
               <p><strong>Aluno:</strong> {state.userName}</p>
               <p><strong>Data:</strong> {new Date().toLocaleDateString('pt-BR')}</p>
@@ -754,7 +750,7 @@ export default function App() {
                   const resp = state.responses[q.id];
                   return (
                     <div key={q.id} className="mb-8 pl-4 border-l-2 border-slate-200">
-                      <p className="font-bold mb-2">QuestÃƒÂ£o {qIdx + 1}: {q.prompt}</p>
+                      <p className="font-bold mb-2">Questão {qIdx + 1}: {q.prompt}</p>
                       <div className="bg-slate-50 p-4 rounded text-sm italic whitespace-pre-wrap">
                         {resp ? (typeof resp.answer === 'object' ? JSON.stringify(resp.answer, null, 2) : resp.answer) : 'Sem resposta'}
                       </div>
@@ -765,7 +761,7 @@ export default function App() {
              </div>
           ))}
         </div>
-      </motion.div>
+      </div>
     );
   };
 
@@ -774,7 +770,7 @@ export default function App() {
     if (!isAdmin && activeModuleStatus.status === 'LOCKED') {
       const config = MODULOS_CONFIG.find(c => c.id === state.activeModuleIndex);
       return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center py-20 text-center space-y-6">
+        <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
           <div className="bg-slate-100 p-8 rounded-full text-slate-300 mb-4 animate-pulse">
             <Lock size={64} />
           </div>
@@ -785,34 +781,32 @@ export default function App() {
           <div className="bg-accent/10 text-accent px-6 py-3 rounded-2xl font-mono text-xl font-bold border border-accent/20">
             {formatCountdown(activeModuleStatus.timeLeft || 0)}
           </div>
-        </motion.div>
+        </div>
       );
     }
 
     if (!isAdmin && activeModuleStatus.status === 'EXPIRED' && !state.modulesCompleted.includes(state.activeModuleIndex)) {
       return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center py-20 text-center space-y-6">
+        <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
           <div className="bg-red-50 p-8 rounded-full text-red-300 mb-4">
             <AlertCircle size={64} />
           </div>
           <h2 className="text-3xl font-black text-slate-900">Prazo Encerrado</h2>
           <p className="text-slate-500 max-w-md mx-auto leading-relaxed">
             Infelizmente o período de realização desta atividade expirou. <br />
-            Por favor, entre em contato com o professor da disciplina para orientaÃƒÂ§ÃƒÂµes.
+            Por favor, entre em contato com o professor da disciplina para orientações.
           </p>
           <div className="text-xs font-bold text-red-500 uppercase tracking-widest bg-red-50 px-4 py-2 rounded-full">
             Janela de acesso finalizada
           </div>
-        </motion.div>
+        </div>
       );
     }
 
     return (
-      <AnimatePresence mode="wait">
-        {activeQuestionIndex === -2 ? renderIntroView() : 
-         activeQuestionIndex === -1 ? renderMaterialsView() : 
-         renderQuestionView()}
-      </AnimatePresence>
+      activeQuestionIndex === -2 ? renderIntroView() : 
+      activeQuestionIndex === -1 ? renderMaterialsView() : 
+      renderQuestionView()
     );
   };
 
@@ -825,7 +819,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans selection:bg-primary selection:text-white">
-      {isLoading && (
+        {isLoading && (
         <div className="fixed inset-0 z-[100] bg-white/90 backdrop-blur-md flex flex-col items-center justify-center space-y-4">
           <Loader2 className="text-primary animate-spin" size={48} />
           <div className="text-center">
@@ -838,28 +832,50 @@ export default function App() {
       {!state.userName && !state.isAdmin ? (
         <LoginView 
           onLogin={(email) => {
-             const userSaved = localStorage.getItem(`respostas_${email}`);
-             const userState = userSaved ? JSON.parse(userSaved) : {
-               activeModuleIndex: 0,
-               responses: {},
-               moduleTimers: {},
-               modulesCompleted: [],
-               readingCompleted: {},
-             };
+             let userState = {};
+             try {
+               const userSaved = localStorage.getItem(`respostas_${email}`);
+               if (userSaved) {
+                 userState = JSON.parse(userSaved) || {};
+               }
+             } catch (e) {
+               console.error('Error parsing user state:', e);
+             }
+             
              const isAdmin = email.toLowerCase() === 'vejasuamaofalar@gmail.com' || email.toLowerCase() === 'coordenacao@uesb.edu.br';
-             setState(prev => ({ ...prev, ...userState, userName: email, isAdmin }));
+             setState(prev => ({ 
+               ...prev, 
+               ...userState, 
+               userName: email, 
+               isAdmin,
+               // Ensure arrays and objects are never null
+               responses: (userState as any)?.responses || prev.responses || {},
+               modulesCompleted: (userState as any)?.modulesCompleted || prev.modulesCompleted || [],
+               moduleTimers: (userState as any)?.moduleTimers || prev.moduleTimers || {},
+               readingCompleted: (userState as any)?.readingCompleted || prev.readingCompleted || {}
+             }));
           }} 
           onAdminLogin={() => {
              const adminEmail = 'vejasuamaofalar@gmail.com';
-             const userSaved = localStorage.getItem(`respostas_${adminEmail}`);
-             const userState = userSaved ? JSON.parse(userSaved) : {
-               activeModuleIndex: 0,
-               responses: {},
-               moduleTimers: {},
-               modulesCompleted: [],
-               readingCompleted: {},
-             };
-             setState(prev => ({ ...prev, ...userState, isAdmin: true, userName: adminEmail }));
+             let userState = {};
+             try {
+               const userSaved = localStorage.getItem(`respostas_${adminEmail}`);
+               if (userSaved) {
+                 userState = JSON.parse(userSaved) || {};
+               }
+             } catch (e) {
+               console.error('Error parsing admin state:', e);
+             }
+             setState(prev => ({ 
+               ...prev, 
+               ...userState, 
+               isAdmin: true, 
+               userName: adminEmail,
+               responses: (userState as any)?.responses || {},
+               modulesCompleted: (userState as any)?.modulesCompleted || [],
+               moduleTimers: (userState as any)?.moduleTimers || {},
+               readingCompleted: (userState as any)?.readingCompleted || {}
+             }));
           }}
         />
       ) : showDashboard && state.isAdmin ? (
@@ -887,7 +903,7 @@ export default function App() {
           <footer className="py-8 bg-white border-t border-slate-100 mt-auto no-print">
             <div className="max-w-7xl mx-auto px-6 text-center text-slate-400 text-xs flex justify-between items-center">
               <div className="flex items-center gap-4">
-                <p>Ã‚Â© 2026 PGMAD/UESB Ã¢â‚¬â€ Programa de Pós-Graduação em Meio Ambiente e Desenvolvimento</p>
+                <p>© 2026 PGMAD/UESB — Programa de Pós-Graduação em Meio Ambiente e Desenvolvimento</p>
                 {isAdmin && (
                   <button 
                     onClick={() => setShowDashboard(true)}
@@ -945,7 +961,7 @@ function LoginView({ onLogin, onAdminLogin }: { onLogin: (name: string) => void,
         return;
       }
       if (!ALLOWED_STUDENTS.includes(email)) {
-        setError('E-mail nÃƒÂ£o matriculado na disciplina.');
+        setError('E-mail não matriculado na disciplina.');
         return;
       }
       if (email === 'vejasuamaofalar@gmail.com' || email === 'coordenacao@uesb.edu.br') {
@@ -954,7 +970,7 @@ function LoginView({ onLogin, onAdminLogin }: { onLogin: (name: string) => void,
             return;
          }
       } else if (password !== '123@mudar') {
-        setError('Senha incorreta. Utilize a senha padrÃƒÂ£o fornecida.');
+        setError('Senha incorreta. Utilize a senha padrão fornecida.');
         return;
       }
       onLogin(email);
@@ -972,11 +988,7 @@ function LoginView({ onLogin, onAdminLogin }: { onLogin: (name: string) => void,
       <div className="flex flex-col justify-center p-8 lg:p-24 space-y-10 bg-slate-50 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1 bg-primary/20" />
         
-        <motion.div 
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="space-y-4"
-        >
+        <div className="space-y-4">
           <div className="bg-primary text-white w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg shadow-primary/20">
             <Award size={32} />
           </div>
@@ -984,7 +996,7 @@ function LoginView({ onLogin, onAdminLogin }: { onLogin: (name: string) => void,
           <p className="text-lg text-slate-500 font-medium leading-relaxed max-w-md text-balance">
             Ambiente Virtual do Programa de Pós-Graduação em Meio Ambiente e Desenvolvimento (PGMAD).
           </p>
-        </motion.div>
+        </div>
 
         <div className="space-y-8 bg-white p-8 rounded-3xl border border-slate-200 shadow-sm relative z-10 transition-all">
           <div className="flex gap-4 border-b border-slate-100 pb-4">
@@ -1024,7 +1036,7 @@ function LoginView({ onLogin, onAdminLogin }: { onLogin: (name: string) => void,
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-primary/5 focus:border-primary transition-all font-medium"
-                    placeholder="Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢"
+                    placeholder="••••••••"
                   />
                 </div>
               </div>
@@ -1037,7 +1049,7 @@ function LoginView({ onLogin, onAdminLogin }: { onLogin: (name: string) => void,
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-primary/5 focus:border-primary transition-all font-medium"
-                  placeholder="Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢Ã¢â‚¬Â¢"
+                  placeholder="••••••••"
                 />
               </div>
             )}
@@ -1082,7 +1094,7 @@ function LoginView({ onLogin, onAdminLogin }: { onLogin: (name: string) => void,
                 <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.4em]">Professor Responsável</span>
                 <h3 className="text-2xl font-black text-white leading-tight uppercase tracking-wide">
                   Prof. Me Aisamaque Gomes de Souza <br/>
-                  <span className="text-base font-bold text-white/70 uppercase">IF Baiano Ã¢â‚¬â€ Campus Itapetinga</span>
+                  <span className="text-base font-bold text-white/70 uppercase">IF Baiano — Campus Itapetinga</span>
                 </h3>
              </div>
              
@@ -1103,11 +1115,11 @@ function LoginView({ onLogin, onAdminLogin }: { onLogin: (name: string) => void,
           <div className="grid grid-cols-2 gap-6">
             <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
               <h4 className="font-bold text-sm mb-1">Totalmente Local</h4>
-              <p className="text-xs text-white/60">Seu progresso é salvo no seu dispositivo para uso contÃ­nuo.</p>
+              <p className="text-xs text-white/60">Seu progresso é salvo no seu dispositivo para uso contínuo.</p>
             </div>
             <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
               <h4 className="font-bold text-sm mb-1">Acesso Direto</h4>
-              <p className="text-xs text-white/60">Os materiais estÃ£o sempre disponíveis de forma fluida.</p>
+              <p className="text-xs text-white/60">Os materiais estão sempre disponíveis de forma fluida.</p>
             </div>
           </div>
         </div>
@@ -1115,6 +1127,8 @@ function LoginView({ onLogin, onAdminLogin }: { onLogin: (name: string) => void,
     </div>
   );
 }
+
+
 
 // --- Sub-Components ---
 
@@ -1155,7 +1169,7 @@ function ProfessorDashboard({ onBack, customModules, onSaveModules }: { onBack: 
 
   const handleSave = () => {
     onSaveModules(modules);
-    alert('AlteraÃƒÂ§ÃƒÂµes salvas com sucesso no seu navegador!');
+    alert('Alterações salvas com sucesso no seu navegador!');
   };
 
   const updateModule = (updated: Module) => {
@@ -1206,25 +1220,23 @@ function ProfessorDashboard({ onBack, customModules, onSaveModules }: { onBack: 
         <div className="max-w-4xl mx-auto space-y-8 pb-32">
           <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
              <h1 className="text-2xl font-black text-slate-800">
-               {activeTab === 'editor' ? 'GestÃƒÂ£o de Conteúdo' : 'Respostas dos Alunos'}
+               {activeTab === 'editor' ? 'Gestão de Conteúdo' : 'Respostas dos Alunos'}
              </h1>
              {activeTab === 'editor' && (
                <button onClick={handleSave} className="bg-primary hover:bg-primary/90 text-white font-bold px-8 py-4 rounded-xl flex items-center justify-center gap-3 shadow-xl shadow-primary/20 transition-all active:scale-[0.98]">
-                 <CheckCircle size={20} /> Salvar AlteraÃƒÂ§ÃƒÂµes
+                 <CheckCircle size={20} /> Salvar Alterações
                </button>
              )}
           </div>
 
           {activeTab === 'editor' && activeModule && (
-            <motion.div 
+            <div 
               key={activeModule.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
               className="space-y-6"
             >
               <div className="bg-white p-8 rounded-3xl border border-slate-200 space-y-6 shadow-sm">
                 <h3 className="font-black text-slate-800 text-lg flex items-center gap-2">
-                  <BookOpen size={20} className="text-primary" /> InformaÃƒÂ§ÃƒÂµes Básicas
+                  <BookOpen size={20} className="text-primary" /> Informações Básicas
                 </h3>
                 <div className="space-y-4">
                   <div>
@@ -1292,10 +1304,10 @@ function ProfessorDashboard({ onBack, customModules, onSaveModules }: { onBack: 
               <div className="bg-white p-8 rounded-3xl border border-slate-200 space-y-6 shadow-sm">
                 <div className="flex justify-between items-center border-b border-slate-100 pb-4">
                   <h3 className="font-black text-slate-800 text-lg flex items-center gap-2">
-                    <FileText size={20} className="text-primary" /> Banco de QuestÃƒÂµes
+                    <FileText size={20} className="text-primary" /> Banco de Questões
                   </h3>
-                  <button onClick={() => updateModule({...activeModule, questions: [...activeModule.questions, { id: `q${Date.now()}`, type: 'OPEN', prompt: 'Nova questÃƒÂ£o descritiva', suggestedMinutes: 10 }]})} className="text-xs font-bold bg-primary/10 text-primary px-4 py-2 rounded-lg hover:bg-primary/20 transition-colors">
-                    + Adicionar QuestÃƒÂ£o
+                  <button onClick={() => updateModule({...activeModule, questions: [...activeModule.questions, { id: `q${Date.now()}`, type: 'OPEN', prompt: 'Nova questão descritiva', suggestedMinutes: 10 }]})} className="text-xs font-bold bg-primary/10 text-primary px-4 py-2 rounded-lg hover:bg-primary/20 transition-colors">
+                    + Adicionar Questão
                   </button>
                 </div>
                 <div className="grid gap-6">
@@ -1315,7 +1327,7 @@ function ProfessorDashboard({ onBack, customModules, onSaveModules }: { onBack: 
                             const newQs = [...activeModule.questions]; 
                             newQs[idx] = { ...newQs[idx], prompt: e.target.value };
                             updateModule({...activeModule, questions: newQs});
-                      }} className="w-full p-4 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-primary min-h-[100px] text-slate-700 leading-relaxed font-medium" placeholder="Digite o enunciado completo da questÃƒÂ£o..." />
+                      }} className="w-full p-4 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-primary min-h-[100px] text-slate-700 leading-relaxed font-medium" placeholder="Digite o enunciado completo da questão..." />
                       
                       <div className="w-full">
                         <label className="text-xs font-bold text-slate-500 mb-1 block">Link de Vídeo Auxiliar (Opcional):</label>
@@ -1354,11 +1366,11 @@ function ProfessorDashboard({ onBack, customModules, onSaveModules }: { onBack: 
                   ))}
                 </div>
               </div>
-            </motion.div>
+            </div>
           )}
 
           {activeTab === 'responses' && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
                <div className="p-4 border-b border-slate-100 bg-slate-50/50">
                  <input 
                    type="text" 
@@ -1374,7 +1386,7 @@ function ProfessorDashboard({ onBack, customModules, onSaveModules }: { onBack: 
                      <tr>
                        <th className="p-4 border-b border-slate-200">Nome do Aluno</th>
                        <th className="p-4 border-b border-slate-200">E-mail do Aluno</th>
-                       <th className="p-4 border-b border-slate-200">QuestÃƒÂ£o (ID)</th>
+                       <th className="p-4 border-b border-slate-200">Questão (ID)</th>
                        <th className="p-4 border-b border-slate-200">Resposta</th>
                        <th className="p-4 border-b border-slate-200">Tempo</th>
                      </tr>
@@ -1394,7 +1406,7 @@ function ProfessorDashboard({ onBack, customModules, onSaveModules }: { onBack: 
                    </tbody>
                  </table>
                </div>
-            </motion.div>
+            </div>
           )}
         </div>
       </div>
@@ -1460,18 +1472,14 @@ function StudieMaterial({ material }: { material: any }) {
       </div>
 
       {showPreview && material.link && (
-        <motion.div 
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          className="rounded-2xl overflow-hidden border border-slate-200 bg-black aspect-video shadow-inner"
-        >
+        <div className="rounded-2xl overflow-hidden border border-slate-200 bg-black aspect-video shadow-inner">
           <iframe 
             src={getEmbedUrl(material.link)}
             className="w-full h-full"
             frameBorder="0"
             allowFullScreen
           />
-        </motion.div>
+        </div>
       )}
     </div>
   );
@@ -1490,7 +1498,11 @@ function QuestionRenderer({
   onConfirm: (ans: any) => void;
   isReadOnly?: boolean;
 }) {
-  const [localAnswer, setLocalAnswer] = useState(existingAnswer || '');
+  const [localAnswer, setLocalAnswer] = useState(() => {
+    if (existingAnswer) return existingAnswer;
+    if (question.type === 'SORTING') return question.options?.map(o => o.id) || [];
+    return '';
+  });
   const [isError, setIsError] = useState(false);
 
   // Set default for types like SORTING
@@ -1674,13 +1686,11 @@ function QuestionRenderer({
       )}
 
       {isError && (
-        <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
+        <div 
           className="p-4 bg-red-50 text-red-600 rounded-xl text-sm font-bold flex items-center gap-2"
         >
           <AlertCircle size={16} /> Por favor, preencha a resposta corretamente antes de confirmar.
-        </motion.div>
+        </div>
       )}
 
       {!isReadOnly && (
