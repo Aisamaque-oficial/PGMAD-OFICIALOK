@@ -130,6 +130,7 @@ export default function App() {
   const [currentQuestionSeconds, setCurrentQuestionSeconds] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [extendedDeadline, setExtendedDeadline] = useState<string | null>(null);
   const [dbMaterials, setDbMaterials] = useState<any[]>([]);
   const [now, setNow] = useState(new Date());
@@ -202,6 +203,18 @@ export default function App() {
         const { data: materials, error: mError } = await supabase.from('materiais').select('*');
         if (!mError && materials && materials.length > 0) setDbMaterials(materials);
 
+        // 1.5 Fetch Global Configuration (Modules)
+        const { data: config, error: cError } = await supabase
+          .from('portal_config')
+          .select('config_data')
+          .eq('config_key', 'global_modules')
+          .maybeSingle();
+        
+        if (!cError && config && Array.isArray(config.config_data) && config.config_data.length > 0) {
+          console.log('[PGMAD] Global modules loaded from Supabase');
+          setState(prev => ({ ...prev, customModules: config.config_data as Module[] }));
+        }
+
         // 2. Fetch Extended Deadlines
         const { data: deadlines, error: dError } = await supabase
           .from('prazos_especiais')
@@ -246,6 +259,28 @@ export default function App() {
 
     performHandshake();
   }, [state.userName]);
+
+  const syncModulesToSupabase = async () => {
+    if (!state.isAdmin) return;
+    setIsSyncing(true);
+    try {
+      const { error } = await supabase
+        .from('portal_config')
+        .upsert({ 
+          config_key: 'global_modules', 
+          config_data: (Array.isArray(state.customModules) && state.customModules.length > 0) ? state.customModules : MODULES,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'config_key' });
+
+      if (error) throw error;
+      alert('Sincronização concluída! Todos os alunos agora verão estas atualizações.');
+    } catch (err) {
+      console.error('[PGMAD] Sync Error:', err);
+      alert('Erro ao sincronizar com o banco de dados. Verifique se você criou a tabela portal_config.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // --- Persistence (Local Backup) ---
   useEffect(() => {
@@ -883,6 +918,8 @@ export default function App() {
           onBack={() => setShowDashboard(false)} 
           customModules={currentModules}
           onSaveModules={(newModules) => setState(prev => ({ ...prev, customModules: newModules }))}
+          onSyncToDb={syncModulesToSupabase}
+          isSyncing={isSyncing}
         />
       ) : (
         <>
@@ -1132,7 +1169,19 @@ function LoginView({ onLogin, onAdminLogin }: { onLogin: (name: string) => void,
 
 // --- Sub-Components ---
 
-function ProfessorDashboard({ onBack, customModules, onSaveModules }: { onBack: () => void, customModules: Module[], onSaveModules: (m: Module[]) => void }) {
+function ProfessorDashboard({ 
+  onBack, 
+  customModules, 
+  onSaveModules, 
+  onSyncToDb,
+  isSyncing
+}: { 
+  onBack: () => void, 
+  customModules: Module[], 
+  onSaveModules: (m: Module[]) => void,
+  onSyncToDb: () => void,
+  isSyncing: boolean
+}) {
   const [modules, setModules] = useState<Module[]>(customModules);
   const [activeModuleId, setActiveModuleId] = useState(modules[0]?.id || 0);
   const [activeTab, setActiveTab] = useState<'editor' | 'responses'>('editor');
@@ -1169,7 +1218,7 @@ function ProfessorDashboard({ onBack, customModules, onSaveModules }: { onBack: 
 
   const handleSave = () => {
     onSaveModules(modules);
-    alert('Alterações salvas com sucesso no seu navegador!');
+    alert('Alterações salvas localmente! Não esqueça de sincronizar com o banco de dados para que os alunos vejam.');
   };
 
   const updateModule = (updated: Module) => {
@@ -1190,6 +1239,22 @@ function ProfessorDashboard({ onBack, customModules, onSaveModules }: { onBack: 
           <button onClick={() => setActiveTab('editor')} className={`flex-1 text-xs font-bold py-2 rounded-lg transition-all ${activeTab === 'editor' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}>Módulos</button>
           <button onClick={() => setActiveTab('responses')} className={`flex-1 text-xs font-bold py-2 rounded-lg transition-all ${activeTab === 'responses' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}>Respostas</button>
         </div>
+
+        {activeTab === 'editor' && (
+          <div className="mb-6 space-y-3">
+             <button 
+               onClick={onSyncToDb}
+               disabled={isSyncing}
+               className="w-full bg-accent hover:bg-accent/90 disabled:opacity-50 text-white font-black p-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-accent/20 text-xs"
+             >
+               {isSyncing ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
+               SINCRONIZAR COM BANCO
+             </button>
+             <p className="text-[9px] text-slate-400 text-center font-bold uppercase tracking-tighter">
+               Envie suas alterações para todos os alunos
+             </p>
+          </div>
+        )}
 
         {activeTab === 'editor' && (
           <>
