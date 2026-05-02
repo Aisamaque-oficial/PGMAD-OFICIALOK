@@ -545,7 +545,7 @@ export default function App() {
           const isCompleted = state.modulesCompleted.includes(idx);
           const { status, timeLeft } = getModuleAccessStatus(idx, isCompleted, now);
           const isActive = state.activeModuleIndex === idx;
-          const isUnlockedBySequence = idx === 0 || state.modulesCompleted.includes(idx - 1);
+          const isUnlockedBySequence = isAdmin || idx === 0 || state.modulesCompleted.includes(idx - 1);
 
           return (
             <button
