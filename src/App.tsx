@@ -551,7 +551,7 @@ export default function App() {
             <button
               key={m.id}
               onClick={() => navigateToModule(idx)}
-              disabled={!isUnlockedBySequence}
+              disabled={!isUnlockedBySequence && !isAdmin}
               className={`w-full text-left p-4 rounded-xl transition-all border ${
                 isActive 
                   ? 'bg-primary text-white border-primary shadow-md transform scale-[1.02]' 
