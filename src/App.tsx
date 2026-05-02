@@ -57,6 +57,7 @@ interface PersistedState {
   userName: string;
   customModules?: Module[];
   isAdmin?: boolean;
+  isSubmitted?: boolean;
 }
 
 enum OperationType {
@@ -102,7 +103,8 @@ export default function App() {
         readingCompleted: {},
         userName: '',
         customModules: globalState?.customModules || [],
-        isAdmin: false
+        isAdmin: false,
+        isSubmitted: false
       };
     } catch (e) {
       console.error('Error loading global state:', e);
@@ -114,7 +116,8 @@ export default function App() {
         readingCompleted: {},
         userName: '',
         customModules: [],
-        isAdmin: false
+        isAdmin: false,
+        isSubmitted: false
       };
     }
   });
@@ -215,6 +218,18 @@ export default function App() {
           setState(prev => ({ ...prev, customModules: config.config_data as Module[] }));
         }
 
+        // 1.7 Fetch Submission Status
+        const { data: submission, error: sError } = await supabase
+          .from('portal_entregas')
+          .select('*')
+          .eq('user_email', state.userName)
+          .maybeSingle();
+        
+        if (!sError && submission) {
+          console.log('[PGMAD] Final submission found for user');
+          setState(prev => ({ ...prev, isSubmitted: true }));
+        }
+
         // 2. Fetch Extended Deadlines
         const { data: deadlines, error: dError } = await supabase
           .from('prazos_especiais')
@@ -259,6 +274,31 @@ export default function App() {
 
     performHandshake();
   }, [state.userName]);
+
+  const handleFinalSubmit = async () => {
+    if (!state.userName || state.isSubmitted) return;
+    
+    setIsLoading(true);
+    try {
+      const { error } = await supabase
+        .from('portal_entregas')
+        .upsert({
+          user_email: state.userName,
+          nome_aluno: STUDENTS_DATA[state.userName] || state.userName,
+          data_entrega: new Date().toISOString()
+        }, { onConflict: 'user_email' });
+
+      if (error) throw error;
+      
+      setState(prev => ({ ...prev, isSubmitted: true }));
+      alert('Atividade enviada com sucesso! Suas respostas agora estão salvas e bloqueadas para o professor.');
+    } catch (err) {
+      console.error('[PGMAD] Submission Error:', err);
+      alert('Erro ao enviar atividade final. Verifique sua conexão e se a tabela portal_entregas foi criada.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const syncModulesToSupabase = async () => {
     if (!state.isAdmin) return;
@@ -685,7 +725,7 @@ export default function App() {
             isAnswered={isAnswered} 
             existingAnswer={response?.answer}
             onConfirm={(ans) => handleConfirmAnswer(q.id, ans)}
-            isReadOnly={activeModuleStatus.status === 'EXPIRED' && !state.isAdmin}
+            isReadOnly={state.isSubmitted || (activeModuleStatus.status === 'EXPIRED' && !state.isAdmin)}
           />
 
           {isAnswered && (
@@ -749,7 +789,25 @@ export default function App() {
             </div>
           </div>
 
-          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-md flex flex-col justify-center items-center gap-6">
+          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-md">
+            <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+              <Send size={20} className="text-accent" /> Entrega Oficial
+            </h3>
+            <div className="space-y-6">
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Ao clicar no botão abaixo, suas atividades serão enviadas oficialmente ao professor e a edição será <strong>bloqueada permanentemente</strong>.
+              </p>
+              <button 
+                disabled={state.isSubmitted}
+                onClick={handleFinalSubmit}
+                className={`w-full font-black p-5 rounded-xl flex items-center justify-center gap-3 transition-all shadow-xl ${state.isSubmitted ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-accent hover:bg-accent/90 text-white shadow-accent/20'}`}
+              >
+                {state.isSubmitted ? 'ATIVIDADE JÁ ENTREGUE' : 'FINALIZAR E ENVIAR TUDO'} <CheckCircle size={20} />
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-md flex flex-col justify-center items-center gap-6 md:col-span-2">
             <div className="w-48 h-48 relative">
               <svg className="w-full h-full transform -rotate-90">
                 <circle cx="96" cy="96" r="88" fill="transparent" stroke="#f1f5f9" strokeWidth="16" />
