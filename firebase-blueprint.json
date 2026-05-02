@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile data",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "is_admin": { "type": "boolean" }
+      },
+      "required": ["name", "email", "created_at"]
+    },
+    "Resposta": {
+      "title": "Resposta",
+      "description": "A student's answer to a specific question",
+      "type": "object",
+      "properties": {
+        "user_id": { "type": "string" },
+        "module_id": { "type": "number" },
+        "question_id": { "type": "string" },
+        "texto_resposta": { "type": "any" },
+        "time_spent": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["user_id", "module_id", "question_id", "texto_resposta", "time_spent", "timestamp"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Collection of user profiles"
+    },
+    "respostas/{respostaId}": {
+      "schema": "Resposta",
+      "description": "Collection of question responses"
+    }
+  }
+}

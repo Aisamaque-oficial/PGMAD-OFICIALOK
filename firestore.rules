@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'vejasuamaofalar@gmail.com';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['email', 'is_admin']));
+    }
+
+    // Respostas Collection
+    match /respostas/{respostaId} {
+      function isValidResposta(data) {
+        return data.user_id is string && 
+               data.module_id is number && 
+               data.question_id is string && 
+               data.time_spent is number &&
+               data.timestamp == request.time;
+      }
+
+      allow list: if isAdmin();
+      allow list: if isSignedIn() && resource.data.user_id == request.auth.uid;
+      allow get: if isSignedIn() && (resource.data.user_id == request.auth.uid || isAdmin());
+      
+      allow create: if isSignedIn() && 
+                    isOwner(request.resource.data.user_id) && 
+                    isValidResposta(request.resource.data);
+                    
+      allow update: if false; // Respostas are immutable for students
+    }
+    
+    // Connection test path
+    match /_connection_test_/{docId} {
+      allow get: if true;
+    }
+  }
+}
