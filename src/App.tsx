@@ -121,22 +121,29 @@ export default function App() {
   // Grant admin bypass offline so the student doesn't hit time blocks
   const isAdmin = state.isAdmin || false;
 
-  // Global Clock for Access Checks
+  // Global Clock for Access Checks (with fallback)
   useEffect(() => {
     let timer: NodeJS.Timeout;
     
+    const initTimer = (offset: number = 0) => {
+      timer = setInterval(() => {
+        setNow(new Date(new Date().getTime() + offset));
+      }, 1000);
+    };
+
     fetch('https://worldtimeapi.org/api/timezone/America/Sao_Paulo')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('Falha na API de tempo');
+        return res.json();
+      })
       .then(data => {
         const serverTime = new Date(data.datetime);
         const offset = serverTime.getTime() - new Date().getTime();
-        
-        timer = setInterval(() => {
-          setNow(new Date(new Date().getTime() + offset));
-        }, 1000);
+        initTimer(offset);
       })
-      .catch(() => {
-        timer = setInterval(() => setNow(new Date()), 1000);
+      .catch((err) => {
+        console.warn('Usando horário local devido a falha na API:', err.message);
+        initTimer(0); // Fallback to local time
       });
       
     return () => {
@@ -162,38 +169,60 @@ export default function App() {
 
   // --- Supabase Handshake ---
   useEffect(() => {
+    let handshakeTimedOut = false;
+    const timeout = setTimeout(() => {
+      handshakeTimedOut = true;
+      setIsLoading(false);
+    }, 5000); // Segurança: Se demorar mais de 5s, libera a tela
+
     const performHandshake = async () => {
-      if (!state.userName) return;
+      if (!state.userName) {
+        clearTimeout(timeout);
+        return;
+      }
+      
       setIsLoading(true);
       try {
         // 1. Fetch Materials (Official)
-        const { data: materials } = await supabase.from('materiais').select('*');
-        if (materials && materials.length > 0) setDbMaterials(materials);
+        const { data: materials, error: mError } = await supabase.from('materiais').select('*');
+        if (!mError && materials && materials.length > 0) setDbMaterials(materials);
 
         // 2. Fetch Extended Deadlines
-        const { data: deadlines } = await supabase
+        const { data: deadlines, error: dError } = await supabase
           .from('prazos_especiais')
           .select('nova_data_limite')
           .eq('user_email', state.userName)
-          .single();
-        if (deadlines) setExtendedDeadline(deadlines.nova_data_limite);
+          .maybeSingle(); // Usar maybeSingle para evitar erro se não achar nada
+        
+        if (!dError && deadlines) setExtendedDeadline(deadlines.nova_data_limite);
 
         // 3. Fetch Existing Responses
-        const { data: responses } = await supabase
+        const { data: responses, error: rError } = await supabase
           .from('respostas_alunos')
           .select('questao_id, resposta_texto')
           .eq('user_id', state.userName);
         
-        if (responses) {
+        if (!rError && responses) {
           const remoteResponses = {};
-          responses.forEach(r => { remoteResponses[r.questao_id] = r.resposta_texto; });
+          responses.forEach(r => { 
+            try {
+              // Tenta dar parse se for JSON, senão usa o texto puro
+              remoteResponses[r.questao_id] = r.resposta_texto.startsWith('{') || r.resposta_texto.startsWith('[') 
+                ? JSON.parse(r.resposta_texto) 
+                : r.resposta_texto;
+            } catch(e) {
+              remoteResponses[r.questao_id] = r.resposta_texto;
+            }
+          });
           setState(prev => ({ ...prev, responses: { ...prev.responses, ...remoteResponses } }));
         }
       } catch (err) {
         console.error('Erro no Handshake:', err);
       } finally {
-        // Pequeno delay para garantir o efeito visual de "oficial"
-        setTimeout(() => setIsLoading(false), 800);
+        clearTimeout(timeout);
+        if (!handshakeTimedOut) {
+          setTimeout(() => setIsLoading(false), 500);
+        }
       }
     };
 
