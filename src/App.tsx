@@ -958,7 +958,8 @@ export default function App() {
                console.error('Error parsing user state:', e);
              }
              
-             const isAdmin = email.toLowerCase() === 'vejasuamaofalar@gmail.com' || email.toLowerCase() === 'coordenacao@uesb.edu.br';
+             const adminEmails = ['vejasuamaofalar@gmail.com', 'coordenacao@uesb.edu.br', 'aisamaque@uesb.edu.br', 'agomes@uesb.edu.br'];
+             const isAdmin = adminEmails.includes(email.toLowerCase());
              setState(prev => ({ 
                ...prev, 
                ...userState, 
@@ -1083,7 +1084,8 @@ function LoginView({ onLogin, onAdminLogin }: { onLogin: (name: string) => void,
         setError('E-mail não matriculado na disciplina.');
         return;
       }
-      if (email === 'vejasuamaofalar@gmail.com' || email === 'coordenacao@uesb.edu.br') {
+      const adminEmails = ['vejasuamaofalar@gmail.com', 'coordenacao@uesb.edu.br', 'aisamaque@uesb.edu.br', 'agomes@uesb.edu.br'];
+      if (adminEmails.includes(email)) {
          if (password !== 'admin123' && password !== '123@mudar') {
             setError('Senha de admin/coordenação incorreta.');
             return;

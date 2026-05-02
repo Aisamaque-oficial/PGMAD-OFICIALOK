@@ -18,7 +18,9 @@ export const STUDENTS_DATA: Record<string, string> = {
   "2025a0051@uesb.edu.br": "Michelle de Jesus Macedo",
   "2025a0046@uesb.edu.br": "Sandy Ribeiro Pereira da Silva",
   "vejasuamaofalar@gmail.com": "Administrador do Sistema",
-  "coordenacao@uesb.edu.br": "Coordenação Geral"
+  "coordenacao@uesb.edu.br": "Coordenação Geral",
+  "aisamaque@uesb.edu.br": "Aisamaque Gomes de Souza",
+  "agomes@uesb.edu.br": "Andréa Gomes"
 };
 
 export interface Option {
