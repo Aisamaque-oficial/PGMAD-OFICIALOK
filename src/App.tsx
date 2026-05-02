@@ -1248,27 +1248,28 @@ function ProfessorDashboard({
 
   useEffect(() => {
     if (activeTab === 'responses') {
-      const collected: any[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('respostas_')) {
-          const email = key.replace('respostas_', '');
-          try {
-            const data = JSON.parse(localStorage.getItem(key) || '{}');
-            if (data.responses) {
-              Object.entries(data.responses).forEach(([qId, ans]: [string, any]) => {
-                collected.push({ 
-                  email, 
-                  questionId: qId, 
-                  nome_aluno: ans.nome_aluno || STUDENTS_DATA[email] || email,
-                  ...ans 
-                });
-              });
-            }
-          } catch(e) {}
+      const fetchGlobalResponses = async () => {
+        try {
+          const { data: responses, error: rError } = await supabase.from('respostas_alunos').select('*');
+          const { data: submissions, error: sError } = await supabase.from('portal_entregas').select('*');
+          
+          if (!rError && responses) {
+            const enriched = responses.map(r => ({
+              email: r.user_id,
+              questionId: r.questao_id,
+              nome_aluno: r.nome_aluno,
+              answer: (r.resposta_texto?.startsWith('{') || r.resposta_texto?.startsWith('[')) ? JSON.parse(r.resposta_texto) : r.resposta_texto,
+              timeSpent: r.tempo_segundos,
+              isSubmitted: submissions?.some(s => s.user_email === r.user_id)
+            }));
+            setAllResponses(enriched);
+          }
+        } catch (e) {
+          console.error('[PGMAD] Error fetching global responses:', e);
         }
-      }
-      setAllResponses(collected);
+      };
+      
+      fetchGlobalResponses();
     }
   }, [activeTab]);
 
@@ -1507,7 +1508,8 @@ function ProfessorDashboard({
                  <table className="w-full text-left text-sm min-w-[600px]">
                    <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-widest text-[10px]">
                      <tr>
-                       <th className="p-4 border-b border-slate-200">Nome do Aluno</th>
+                       <th className="p-4 border-b border-slate-200">Status</th>
+                        <th className="p-4 border-b border-slate-200">Nome do Aluno</th>
                        <th className="p-4 border-b border-slate-200">E-mail do Aluno</th>
                        <th className="p-4 border-b border-slate-200">Questão (ID)</th>
                        <th className="p-4 border-b border-slate-200">Resposta</th>
@@ -1516,10 +1518,17 @@ function ProfessorDashboard({
                    </thead>
                    <tbody className="divide-y divide-slate-100">
                      {allResponses.filter(r => (r.nome_aluno || '').toLowerCase().includes(searchQuery.toLowerCase()) || r.email.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
-                       <tr><td colSpan={5} className="p-8 text-center text-slate-400">Nenhuma resposta encontrada.</td></tr>
+                       <tr><td colSpan={6} className="p-8 text-center text-slate-400">Nenhuma resposta encontrada.</td></tr>
                      ) : allResponses.filter(r => (r.nome_aluno || '').toLowerCase().includes(searchQuery.toLowerCase()) || r.email.toLowerCase().includes(searchQuery.toLowerCase())).map((r, i) => (
                        <tr key={i} className="hover:bg-slate-50">
-                         <td className="p-4 font-bold text-slate-700">{r.nome_aluno}</td>
+                         <td className="p-4">
+                            {r.isSubmitted ? (
+                              <span className="bg-emerald-100 text-emerald-700 text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-tighter">Entregue</span>
+                            ) : (
+                              <span className="bg-amber-100 text-amber-700 text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-tighter">Em andamento</span>
+                            )}
+                          </td>
+                          <td className="p-4 font-bold text-slate-700">{r.nome_aluno}</td>
                          <td className="p-4 font-medium text-slate-500">{r.email}</td>
                          <td className="p-4 text-slate-500 font-mono text-xs">{r.questionId}</td>
                          <td className="p-4 text-slate-600 max-w-xs truncate">{typeof r.answer === 'object' ? JSON.stringify(r.answer) : String(r.answer)}</td>
