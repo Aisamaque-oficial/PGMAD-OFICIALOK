@@ -261,10 +261,10 @@ export const MODULES: Module[] = [
 // CONFIGURAÇÃO DE DATAS E TURNOS — edite apenas este bloco
 // ============================================================
 export const MODULOS_CONFIG = [
-  { id: 0, data: '2026-05-02', inicioHora: 9,  fimHora: 11, fimMinuto: 59 }, // Sábado Manhã (09:00 às 12:00)
-  { id: 1, data: '2026-05-02', inicioHora: 15, fimHora: 17, fimMinuto: 59 }, // Sábado Tarde (15:00 às 18:00)
-  { id: 2, data: '2026-05-03', inicioHora: 9,  fimHora: 11, fimMinuto: 59 }, // Domingo Manhã (09:00 às 12:00)
-  { id: 3, data: '2026-05-03', inicioHora: 13, fimHora: 23, fimMinuto: 59 }, // Domingo Tarde (13:00 às 23:59)
+  { id: 0, data: '2026-05-02', inicioHora: 9,  fimHora: 23, fimMinuto: 59 }, // Sábado Manhã (Até meia-noite)
+  { id: 1, data: '2026-05-02', inicioHora: 9,  fimHora: 23, fimMinuto: 59 }, // Sábado Tarde (Liberado agora até meia-noite)
+  { id: 2, data: '2026-05-03', inicioHora: 9,  fimHora: 23, fimMinuto: 59 }, // Domingo Manhã
+  { id: 3, data: '2026-05-03', inicioHora: 9,  fimHora: 23, fimMinuto: 59 }, // Domingo Tarde
 ];
 // ============================================================
 
