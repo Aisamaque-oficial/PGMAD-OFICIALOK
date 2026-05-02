@@ -262,7 +262,7 @@ export const MODULES: Module[] = [
 // ============================================================
 export const MODULOS_CONFIG = [
   { id: 0, data: '2026-05-02', inicioHora: 9,  fimHora: 23, fimMinuto: 59 }, // Sábado Manhã (Até meia-noite)
-  { id: 1, data: '2026-05-02', inicioHora: 9,  fimHora: 23, fimMinuto: 59 }, // Sábado Tarde (Liberado agora até meia-noite)
+  { id: 1, data: '2026-05-02', inicioHora: 14, fimHora: 23, fimMinuto: 59 }, // Sábado Tarde (A partir das 14h)
   { id: 2, data: '2026-05-03', inicioHora: 9,  fimHora: 23, fimMinuto: 59 }, // Domingo Manhã
   { id: 3, data: '2026-05-03', inicioHora: 9,  fimHora: 23, fimMinuto: 59 }, // Domingo Tarde
 ];
