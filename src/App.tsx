@@ -18,10 +18,9 @@ import {
   FileText,
   Video,
   Scale,
-  Award,
-  CalendarDays,
   Send,
-  Loader2
+  Loader2,
+  Users
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { 
@@ -273,6 +272,25 @@ export default function App() {
     };
 
     performHandshake();
+  }, [state.userName]);
+
+  // --- Heartbeat Presence ---
+  useEffect(() => {
+    if (!state.userName) return;
+
+    const sendHeartbeat = async () => {
+      try {
+        await supabase.from('portal_presenca').upsert({
+          user_email: state.userName,
+          nome_aluno: STUDENTS_DATA[state.userName] || state.userName,
+          last_seen_at: new Date().toISOString()
+        }, { onConflict: 'user_email' });
+      } catch (e) {}
+    };
+
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 60000); // Every minute
+    return () => clearInterval(interval);
   }, [state.userName]);
 
   const handleFinalSubmit = async () => {
@@ -1242,8 +1260,9 @@ function ProfessorDashboard({
 }) {
   const [modules, setModules] = useState<Module[]>(customModules);
   const [activeModuleId, setActiveModuleId] = useState(modules[0]?.id || 0);
-  const [activeTab, setActiveTab] = useState<'editor' | 'responses'>('editor');
+  const [activeTab, setActiveTab] = useState<'editor' | 'responses' | 'online'>('editor');
   const [allResponses, setAllResponses] = useState<any[]>([]);
+  const [onlineUsers, setOnlineUsers] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
@@ -1273,6 +1292,26 @@ function ProfessorDashboard({
     }
   }, [activeTab]);
 
+  useEffect(() => {
+    if (activeTab === 'online') {
+      const fetchPresence = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('portal_presenca')
+            .select('*')
+            .order('last_seen_at', { ascending: false });
+          
+          if (!error && data) {
+            setOnlineUsers(data);
+          }
+        } catch (e) {}
+      };
+      fetchPresence();
+      const interval = setInterval(fetchPresence, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab]);
+
   const activeModule = modules.find(m => m.id === activeModuleId);
 
   const handleSave = () => {
@@ -1295,8 +1334,9 @@ function ProfessorDashboard({
         </div>
 
         <div className="flex bg-slate-100 p-1 rounded-xl mb-4">
-          <button onClick={() => setActiveTab('editor')} className={`flex-1 text-xs font-bold py-2 rounded-lg transition-all ${activeTab === 'editor' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}>Módulos</button>
-          <button onClick={() => setActiveTab('responses')} className={`flex-1 text-xs font-bold py-2 rounded-lg transition-all ${activeTab === 'responses' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}>Respostas</button>
+          <button onClick={() => setActiveTab('editor')} className={`flex-1 text-[10px] font-black py-2 rounded-lg transition-all ${activeTab === 'editor' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}>Módulos</button>
+          <button onClick={() => setActiveTab('responses')} className={`flex-1 text-[10px] font-black py-2 rounded-lg transition-all ${activeTab === 'responses' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}>Respostas</button>
+          <button onClick={() => setActiveTab('online')} className={`flex-1 text-[10px] font-black py-2 rounded-lg transition-all ${activeTab === 'online' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700'}`}>Online</button>
         </div>
 
         {activeTab === 'editor' && (
@@ -1344,7 +1384,7 @@ function ProfessorDashboard({
         <div className="max-w-4xl mx-auto space-y-8 pb-32">
           <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
              <h1 className="text-2xl font-black text-slate-800">
-               {activeTab === 'editor' ? 'Gestão de Conteúdo' : 'Respostas dos Alunos'}
+               {activeTab === 'editor' ? 'Gestão de Conteúdo' : activeTab === 'responses' ? 'Respostas dos Alunos' : 'Alunos Conectados'}
              </h1>
              {activeTab === 'editor' && (
                <button onClick={handleSave} className="bg-primary hover:bg-primary/90 text-white font-bold px-8 py-4 rounded-xl flex items-center justify-center gap-3 shadow-xl shadow-primary/20 transition-all active:scale-[0.98]">
@@ -1538,6 +1578,36 @@ function ProfessorDashboard({
                    </tbody>
                  </table>
                </div>
+            </div>
+          )}
+
+          {activeTab === 'online' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-12">
+              {onlineUsers.length === 0 ? (
+                <div className="col-span-full p-12 text-center text-slate-400 bg-white rounded-3xl border border-slate-100 shadow-sm">
+                   Ninguém conectou ainda.
+                </div>
+              ) : onlineUsers.map((user, i) => {
+                const lastSeen = new Date(user.last_seen_at);
+                const isOnline = (new Date().getTime() - lastSeen.getTime()) < 300000; // 5 minutes
+                
+                return (
+                  <div key={i} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4 transition-all hover:shadow-md group">
+                     <div className="relative">
+                        <div className={`w-3 h-3 rounded-full ${isOnline ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-slate-300'}`} />
+                        {isOnline && <div className="absolute inset-0 w-3 h-3 rounded-full bg-emerald-500 animate-ping opacity-75" />}
+                      </div>
+                      <div className="flex-1 overflow-hidden">
+                         <p className="font-bold text-slate-800 truncate group-hover:text-primary transition-colors">{user.nome_aluno}</p>
+                         <p className="text-[10px] text-slate-400 font-medium truncate uppercase tracking-widest">{user.user_email}</p>
+                      </div>
+                      <div className="text-right">
+                         <p className="text-[10px] font-black text-slate-300 uppercase leading-none mb-1">Visto</p>
+                         <p className="text-xs font-bold text-slate-500">{lastSeen.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                      </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
