@@ -151,14 +151,14 @@ export default function App() {
     };
   }, []);
 
-  const activeModule = currentModules[state.activeModuleIndex];
+  const activeModule = currentModules[state.activeModuleIndex] || currentModules[0] || MODULES[0];
   
   // Calculate module status considering extended deadlines
   const calculateAccessStatus = () => {
     const baseStatus = getModuleAccessStatus(state.activeModuleIndex, state.modulesCompleted.includes(state.activeModuleIndex), now);
     if (extendedDeadline && baseStatus.status === 'EXPIRED') {
       const extensionDate = new Date(extendedDeadline);
-      if (now < extensionDate) {
+      if (!isNaN(extensionDate.getTime()) && now < extensionDate) {
         return { ...baseStatus, status: 'AVAILABLE' as const, end: extensionDate };
       }
     }
@@ -815,6 +815,13 @@ export default function App() {
       </AnimatePresence>
     );
   };
+
+  console.log('[PGMAD] Render Cycle:', { 
+    isLogged: !!state.userName, 
+    activeIdx: state.activeModuleIndex, 
+    isLoading,
+    isFinished
+  });
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans selection:bg-primary selection:text-white">
