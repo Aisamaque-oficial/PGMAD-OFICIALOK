@@ -1258,7 +1258,8 @@ function ProfessorDashboard({
   customModules, 
   onSaveModules, 
   onSyncToDb,
-  isSyncing
+  isSyncing,
+  syncStatus
 }: { 
   onBack: () => void, 
   customModules: Module[], 
