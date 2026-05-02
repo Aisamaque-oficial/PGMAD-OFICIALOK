@@ -319,9 +319,12 @@ export default function App() {
     }
   };
 
+  const [syncStatus, setSyncStatus] = useState<{ type: 'success' | 'error', msg: string } | null>(null);
+
   const syncModulesToSupabase = async () => {
     if (!state.isAdmin) return;
     setIsSyncing(true);
+    setSyncStatus(null);
     try {
       const { error } = await supabase
         .from('portal_config')
@@ -332,10 +335,11 @@ export default function App() {
         }, { onConflict: 'config_key' });
 
       if (error) throw error;
-      alert('Sincronização concluída! Todos os alunos agora verão estas atualizações.');
+      setSyncStatus({ type: 'success', msg: 'Sincronização concluída com sucesso!' });
+      setTimeout(() => setSyncStatus(null), 5000);
     } catch (err) {
       console.error('[PGMAD] Sync Error:', err);
-      alert('Erro ao sincronizar com o banco de dados. Verifique se você criou a tabela portal_config.');
+      setSyncStatus({ type: 'error', msg: 'Erro ao sincronizar. Verifique a tabela portal_config.' });
     } finally {
       setIsSyncing(false);
     }
@@ -930,7 +934,7 @@ export default function App() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans selection:bg-primary selection:text-white">
+    <div className="min-h-screen bg-slate-50 font-sans selection:bg-primary selection:text-white notranslate">
         {isLoading && (
         <div className="fixed inset-0 z-[100] bg-white/90 backdrop-blur-md flex flex-col items-center justify-center space-y-4">
           <Loader2 className="text-primary animate-spin" size={48} />
@@ -997,6 +1001,7 @@ export default function App() {
           onSaveModules={(newModules) => setState(prev => ({ ...prev, customModules: newModules }))}
           onSyncToDb={syncModulesToSupabase}
           isSyncing={isSyncing}
+          syncStatus={syncStatus}
         />
       ) : (
         <>
@@ -1257,7 +1262,8 @@ function ProfessorDashboard({
   customModules: Module[], 
   onSaveModules: (m: Module[]) => void,
   onSyncToDb: () => void,
-  isSyncing: boolean
+  isSyncing: boolean,
+  syncStatus?: { type: 'success' | 'error', msg: string } | null
 }) {
   const [modules, setModules] = useState<Module[]>(customModules);
   const [activeModuleId, setActiveModuleId] = useState(modules[0]?.id || 0);
@@ -1341,42 +1347,51 @@ function ProfessorDashboard({
         </div>
 
         {activeTab === 'editor' && (
-          <div className="mb-6 space-y-3">
-             <button 
-               onClick={onSyncToDb}
-               disabled={isSyncing}
-               className="w-full bg-accent hover:bg-accent/90 disabled:opacity-50 text-white font-black p-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-accent/20 text-xs"
-             >
-               {isSyncing ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
-               SINCRONIZAR COM BANCO
-             </button>
-             <p className="text-[9px] text-slate-400 text-center font-bold uppercase tracking-tighter">
-               Envie suas alterações para todos os alunos
-             </p>
-          </div>
-        )}
+          <div className="flex flex-col gap-6">
+            <div className="space-y-3">
+               <button 
+                 onClick={onSyncToDb}
+                 disabled={isSyncing}
+                 className="w-full bg-accent hover:bg-accent/90 disabled:opacity-50 text-white font-black p-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-accent/20 text-xs"
+               >
+                 <span key={isSyncing ? 'syncing' : 'idle'}>
+                   {isSyncing ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
+                 </span>
+                 SINCRONIZAR COM BANCO
+               </button>
+               
+               {syncStatus && (
+                 <div className={`p-3 rounded-lg text-[10px] font-bold text-center border animate-in fade-in slide-in-from-top-2 ${syncStatus.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-red-50 border-red-100 text-red-600'}`}>
+                   {syncStatus.msg}
+                 </div>
+               )}
 
-        {activeTab === 'editor' && (
-          <>
-            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Módulos do Curso</div>
-            {modules.map(m => (
-              <button 
-                key={m.id}
-                onClick={() => setActiveModuleId(m.id)}
-                className={`text-left p-4 rounded-2xl text-sm font-bold transition-all ${activeModuleId === m.id ? 'bg-primary text-white shadow-md shadow-primary/20' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-100'}`}
-              >
-                {m.title}
-              </button>
-            ))}
-            <div className="mt-auto pt-6 border-t border-slate-100 text-xs text-slate-400 font-medium">
-              Edite os campos ao lado e clique em Salvar para persistir as alteraÃƒÂ§ÃƒÂµes localmente.
+               <p className="text-[9px] text-slate-400 text-center font-bold uppercase tracking-tighter">
+                 Envie suas alterações para todos os alunos
+               </p>
             </div>
-          </>
+
+            <div className="space-y-3">
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Módulos do Curso</div>
+              {modules.map(m => (
+                <button 
+                  key={m.id}
+                  onClick={() => setActiveModuleId(m.id)}
+                  className={`text-left p-4 rounded-2xl text-sm font-bold transition-all ${activeModuleId === m.id ? 'bg-primary text-white shadow-md shadow-primary/20' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-100'}`}
+                >
+                  {m.title}
+                </button>
+              ))}
+              <div className="mt-auto pt-6 border-t border-slate-100 text-xs text-slate-400 font-medium">
+                Edite os campos ao lado e clique em Salvar para persistir as alterações localmente.
+              </div>
+            </div>
+          </div>
         )}
 
         {activeTab === 'responses' && (
            <div className="text-xs text-slate-500 font-medium mt-4">
-             As respostas sÃƒÂ£o coletadas automaticamente do armazenamento local (localStorage) deste navegador.
+             As respostas são coletadas automaticamente do armazenamento local (localStorage) deste navegador.
            </div>
         )}
       </div>
