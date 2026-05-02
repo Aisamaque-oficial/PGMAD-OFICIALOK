@@ -18,6 +18,7 @@ import {
   FileText,
   Video,
   Scale,
+  Award,
   Send,
   Loader2,
   Users
