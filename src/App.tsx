@@ -1283,14 +1283,27 @@ function ProfessorDashboard({
           const { data: submissions, error: sError } = await supabase.from('portal_entregas').select('*');
           
           if (!rError && responses) {
-            const enriched = responses.map(r => ({
-              email: r.user_id,
-              questionId: r.questao_id,
-              nome_aluno: r.nome_aluno,
-              answer: (r.resposta_texto?.startsWith('{') || r.resposta_texto?.startsWith('[')) ? JSON.parse(r.resposta_texto) : r.resposta_texto,
-              timeSpent: r.tempo_segundos,
-              isSubmitted: submissions?.some(s => s.user_email === r.user_id)
-            }));
+            const enriched = responses.map(r => {
+              try {
+                return {
+                  email: r.user_id,
+                  questionId: r.questao_id,
+                  nome_aluno: r.nome_aluno,
+                  answer: (r.resposta_texto?.startsWith('{') || r.resposta_texto?.startsWith('[')) ? JSON.parse(r.resposta_texto) : r.resposta_texto,
+                  timeSpent: r.tempo_segundos,
+                  isSubmitted: submissions?.some(s => s.user_email === r.user_id)
+                };
+              } catch (e) {
+                return {
+                  email: r.user_id,
+                  questionId: r.questao_id,
+                  nome_aluno: r.nome_aluno,
+                  answer: r.resposta_texto,
+                  timeSpent: r.tempo_segundos,
+                  isSubmitted: submissions?.some(s => s.user_email === r.user_id)
+                };
+              }
+            });
             setAllResponses(enriched);
           }
         } catch (e) {
